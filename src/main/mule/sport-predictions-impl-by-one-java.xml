@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<flow name="createPredictionJavaFlow" doc:id="b5fe3028-753b-408b-afe9-61b1f40bc187" >
+		<amqp:publish doc:name="Publish new prediction" doc:id="470d8699-b26d-4ba4-b01d-177c19a7a0cc" config-ref="AMQP_Config" exchangeName="amq.topic" deliveryMode="PERSISTENT">
+			<amqp:routing-keys >
+				<amqp:routing-key value="prediction.create" />
+			</amqp:routing-keys>
+		</amqp:publish>
+	</flow>
+	<flow name="comparePredictionsJavaFlow" doc:id="81d900a2-5454-4c9b-ac76-b431fe15ff5a" initialState="stopped">
+		<scheduler doc:name="Scheduler" doc:id="65cf590a-7fc6-4069-9654-6a6059bf88fa" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="1" timeUnit="DAYS"/>
+			</scheduling-strategy>
+		</scheduler>
+		<http:request method="GET" doc:name="football-api-beta" doc:id="1cfca242-f19f-40b0-88ef-9fa875362f70" config-ref="Api-Football-Beta-HTTP_Request_configuration" path="/fixtures">
+			<http:headers><![CDATA[#[output application/java
+---
+{
+	"x-rapidapi-key" : "367da360a2mshe99c6313e5c1f4dp121921jsn97b4c767bdf0",
+	"x-rapidapi-host" : "api-football-beta.p.rapidapi.com"
+}]]]></http:headers>
+			<http:query-params><![CDATA[#[output application/json
+---
+{
+	//"date" : (now()-|P1D|) as String{format:"YYYY-MM-dd"}
+	date:"2021-05-18"//,
+	//league:"39",
+	//season:"2020"
+}]]]></http:query-params>
+		</http:request>
+		<set-variable value="#[payload]" doc:name="Set results" doc:id="4f5b59d8-de00-46e6-8748-6c45e221fd19" variableName="results" />
+		<ee:transform doc:name="Transform Message" doc:id="d4d27f6f-37b4-4eb5-b2d9-0443131e0d45" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="already_played" ><![CDATA[%dw 2.0
+output application/json
+import java!com::entirequeueconsumer::EntireQueueConsumer
+var predictions=EntireQueueConsumer::consumePredictions("sport_predictions"
+	,"NOT_YET_PLAYED_PREDICTION"
+)
+---
+
+flatten((predictions map (prediction) -> {
+	result:(vars.results.response map((event) ->do{
+	if(event.fixture.id~=prediction.id and prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String)){
+	       	id:prediction.id,
+	    	teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
+			result: "You guessed correctly",
+			score: prediction.score,
+			userId:prediction.userId,
+			date: prediction.date
+	}
+	else if(event.fixture.id~=prediction.id and (not (prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String))))
+	       {
+				id:prediction.id,
+				teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
+			    result: "You were wrong",
+			    score: event.goals.home as String ++ ":" ++ event.goals.away as String,
+			    userId:prediction.userId,
+			    date: prediction.date
+			}
+	    	
+    else
+	  null
+}))filter($!=null)
+}).*result filter(sizeOf($)>0))]]></ee:set-variable>
+				<ee:set-variable variableName="not_yet_played" ><![CDATA[%dw 2.0
+output application/json
+import java!com::entirequeueconsumer::EntireQueueConsumer
+var predictions=EntireQueueConsumer::consumePredictions("sport_predictions",
+"NOT_YET_PLAYED_PREDICTION")
+---
+predictions filter(not (vars.results.response.*fixture.id contains($.id)))]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<scatter-gather doc:name="Scatter-Gather" doc:id="cc7b3788-c9f2-47a2-920c-4a6db80b317c" >
+			<route >
+				<foreach doc:name="For Each" doc:id="dd1181c0-ff30-4bfb-bea2-457c9476716b" collection="#[vars.not_yet_played default []]">
+					<amqp:publish doc:name="Publish again not yet played predictions" doc:id="bcbe831b-cb9b-43e1-b7ec-034e2f9dbb8b" config-ref="AMQP_Config" exchangeName="amq.topic" deliveryMode="PERSISTENT">
+					<amqp:routing-keys>
+						<amqp:routing-key value="prediction.create" />
+					</amqp:routing-keys>
+				</amqp:publish>
+				</foreach>
+			</route>
+			<route >
+				<foreach doc:name="For Each" doc:id="8f5e7c98-e2fb-4256-85f1-25a4640d2afa" collection="#[vars.already_played default []]">
+					<amqp:publish doc:name="Publish to results_of_predictions queue" doc:id="d6ad705b-0333-42d1-910b-5387eb42896e" config-ref="AMQP_Config" exchangeName="amq.topic" deliveryMode="PERSISTENT">
+					<amqp:routing-keys>
+						<amqp:routing-key value="predictions.results" />
+					</amqp:routing-keys>
+				</amqp:publish>
+				</foreach>
+			</route>
+		</scatter-gather>
+	</flow>
+	<flow name="checkPredictionsJavaFlow" doc:id="2463d56b-f6d2-4bbc-9853-56a699efb082" >
+		<ee:transform doc:name="Transform Message" doc:id="ec34a644-a22e-4137-b204-00b9ddd9ae64" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+import java!com::entirequeueconsumer::EntireQueueConsumer
+type PredictionType=Object{class:"com.predictiontype.PredictionType"}
+---
+EntireQueueConsumer::consumePredictions("results_of_predictions"
+	, "ALREADY_PLAYED_PREDICTION"
+)]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="61a2ff2f-468e-4fab-a8c4-5df8a6f7da2f" collection="#[payload]">
+			<amqp:publish doc:name="Republish results of predictions" doc:id="aa4da794-3786-4a50-a37d-0809c869ba12" config-ref="AMQP_Config" exchangeName="amq.topic" deliveryMode="PERSISTENT">
+				<amqp:routing-keys >
+					<amqp:routing-key value="predictions.results" />
+				</amqp:routing-keys>
+			</amqp:publish>
+		</foreach>
+		<set-payload value="#[output application/json&#10;---&#10;payload filter($.userId~=attributes.queryParams.userId)]" doc:name="Set Payload" doc:id="944d5455-e8cc-4933-b832-24e5cfed6d62" />
+	</flow>
+</mule>

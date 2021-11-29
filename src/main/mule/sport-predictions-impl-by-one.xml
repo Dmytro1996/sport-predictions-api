@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:oauth2-provider="http://www.mulesoft.org/schema/mule/oauth2-provider"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:spring="http://www.mulesoft.org/schema/mule/spring" xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/oauth http://www.mulesoft.org/schema/mule/oauth/current/mule-oauth.xsd
+http://www.mulesoft.org/schema/mule/spring http://www.mulesoft.org/schema/mule/spring/current/mule-spring.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/oauth2-provider http://www.mulesoft.org/schema/mule/oauth2-provider/current/mule-oauth2-provider.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<sub-flow name="createPredictionSubFlow" doc:id="0565dd91-e527-4f60-b59c-c10127e5f794" >
+		<set-variable value="#[payload]" doc:name="Set Variable" doc:id="1b14a885-ebdd-42eb-aec9-c6dd21f97c80" variableName="newPrediction"/>
+		<oauth2-provider:validate-token doc:name="Validate token" doc:id="215e39e2-7969-4c9e-96ab-cc94984555d2" config-ref="OAuth2_Provider_Config" accessToken="#[(attributes.headers[&quot;Authorization&quot;] splitBy ' ')[1]]">
+			<error-mapping sourceType="OAUTH2-PROVIDER:TOKEN_UNAUTHORIZED" targetType="APP:INVALID_TOKEN" />
+		</oauth2-provider:validate-token>
+		<amqp:publish doc:name="Publish created prediction" doc:id="737baf1f-56db-425d-94b2-417c09b0ca49" config-ref="AMQP_Config" exchangeName="amq.topic" >
+			<amqp:routing-keys >
+				<amqp:routing-key value="prediction.create" />
+			</amqp:routing-keys>
+			<amqp:message >
+				<amqp:body ><![CDATA[#[{
+	id:vars.newPrediction.id,
+	score:vars.newPrediction.score,
+	user_email:payload.client_id,
+	date: now() as String{format:"YYYY-MM-dd"}
+}]]]></amqp:body>
+			</amqp:message>
+		</amqp:publish>
+		<set-payload value="#[vars.newPrediction]" doc:name="Set Payload" doc:id="915aa7a3-9796-4e74-aa10-6a3994d2fe9f" />
+	</sub-flow>
+	<flow name="comparePredictionsFlow" doc:id="7b34216d-da35-4762-8ec8-e182f0eb9db4">
+		<scheduler doc:name="Scheduler" doc:id="bbb21354-f6fb-45cf-a453-55ecbcdf96f0" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="1" timeUnit="DAYS" />
+			</scheduling-strategy>
+		</scheduler>
+		<http:request method="GET" doc:name="api-football-beta" doc:id="bb8c0be1-2ad6-4a75-bd48-bd0d2e377256" config-ref="Api-Football-Beta-HTTP_Request_configuration" path="/fixtures" >
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"x-rapidapi-key" : "367da360a2mshe99c6313e5c1f4dp121921jsn97b4c767bdf0",
+	"x-rapidapi-host" : "api-football-beta.p.rapidapi.com"
+}]]]></http:headers>
+			<http:query-params ><![CDATA[#[output application/json
+---
+{
+	//"date" : (now()-|P1D|) as String{format:"YYYY-MM-dd"}
+	date:"2021-05-18",
+	//league:"39",
+	//season:"2020"
+}]]]></http:query-params>
+		</http:request>
+		<set-variable value="#[payload]" doc:name="Set results" doc:id="458c29fd-67de-4d5a-8d0b-742cd19dd54c" variableName="results" />
+		<set-variable value="#[[]]" doc:name="Set predictions" doc:id="3aae65fb-8dbe-41bf-8372-a814106c0e3d" variableName="predictions"/>
+		<try doc:name="Try" doc:id="2629e48b-6e74-4ed9-94f7-25e6fabc68a9" >
+			<foreach doc:name="For Each" doc:id="7a844f78-eaf2-4d73-8cf5-a1bdabc1ed98" collection="#[//output applicattion/json&#10;//---&#10;((1 to 1000) map(object) -&gt;{&#10;	value: object&#10;}).*value]">
+			<amqp:consume doc:name="Get predictions" doc:id="9e195013-8eec-4a72-844e-8995b28242a7" config-ref="AMQP_Config" queueName="sport_predictions" maximumWait="1000"/>
+				<set-variable value="#[output application/json&#10;---&#10;vars.predictions++[payload]]" doc:name="Set predictions" doc:id="fe6d04ea-aaf7-4151-9d20-5462336bf71a" variableName="predictions"/>
+		</foreach>
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="3eb9b74c-128d-4c2f-85db-0d375239994d" >
+					<logger level="INFO" doc:name="Logger" doc:id="8b7337a3-6e8c-414a-8b0c-7552af652a1a" message='"Queue is empty"'/>
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="423d3462-cae3-4d15-92cf-b1002ea1ed2c" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="not_yet_played" ><![CDATA[%dw 2.0
+output application/json
+---
+(vars.predictions filter(not (vars.results.response.*fixture.id contains($.id as Number)))) filter(not ($~=null)) default []]]></ee:set-variable>
+				<ee:set-variable variableName="already_played" ><![CDATA[%dw 2.0
+output application/json
+---
+flatten((vars.predictions map (prediction) -> {
+	result:(vars.results.response map((event) ->do{
+	if(event.fixture.id~=prediction.id and prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String)){
+	       	id:prediction.id,
+	    	teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
+			result: "You guessed correctly",
+			score: prediction.score,
+			user_email:prediction.user_email,
+			date: prediction.date
+	}
+	else if(event.fixture.id~=prediction.id and (not (prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String))))
+	       {
+				id:prediction.id,
+				teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
+			    result: "You were wrong",
+			    score: prediction.score,
+			    user_email:prediction.user_email,
+			    date: prediction.date
+			}
+	    	
+    else
+	  null
+}))filter($!=null)
+}).*result filter(sizeOf($)>0)) default []]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<scatter-gather doc:name="Scatter-Gather" doc:id="0e551c8d-8057-4c5f-ab54-ae54706c1b60" >
+			<route >
+				<foreach doc:name="For Each" doc:id="b1028c6e-b04f-468f-9b14-d35834ddea56" collection="#[vars.already_played]">
+					<amqp:publish doc:name="Publish to results_of_predictions queue" doc:id="fe756bc4-3a83-47d3-918d-5f4344aa0319" config-ref="AMQP_Config" exchangeName="amq.topic">
+					<amqp:routing-keys>
+						<amqp:routing-key value="predictions.results" />
+					</amqp:routing-keys>
+				</amqp:publish>
+				</foreach>
+			</route>
+			<route >
+				<foreach doc:name="For Each" doc:id="68c4756d-de9c-4738-a8a4-8f25386786f2" collection="#[vars.not_yet_played]">
+					<amqp:publish doc:name="Publish again not yet played predictions" doc:id="ec05a0b1-1ad1-4a03-b65c-36ea9635d342" config-ref="AMQP_Config" exchangeName="amq.topic">
+					<amqp:routing-keys>
+						<amqp:routing-key value="prediction.create" />
+					</amqp:routing-keys>
+				</amqp:publish>
+				</foreach>
+			</route>
+		</scatter-gather>
+	</flow>
+	<sub-flow name="checkPredictonsSubFlow" doc:id="17069f46-f50a-4ce1-8b0b-af8502b7b174" >
+		<oauth2-provider:validate-token doc:name="Validate token" doc:id="65c85f58-4fc9-436e-a41e-0c0b4f84d5a5" config-ref="OAuth2_Provider_Config" accessToken="#[(attributes.headers['Authorization'] splitBy ' ')[1]]">
+			<error-mapping sourceType="OAUTH2-PROVIDER:TOKEN_UNAUTHORIZED" targetType="APP:INVALID_TOKEN" />
+		</oauth2-provider:validate-token>
+		<set-variable value="#[payload.'client_id']" doc:name="Set user_email" doc:id="df4e32b5-9f02-4333-b7af-ce02ad5f0e30" variableName="user_email" />
+		<set-variable value="#[[]]" doc:name="Set played_predictions" doc:id="6bdadfd7-e749-438c-8ecc-f084abf2c1b8" variableName="played_predictions"/>
+		<try doc:name="Try" doc:id="b3b06710-394e-4538-ba84-4df83cc3651f">
+			<foreach doc:name="For Each" doc:id="23ffac0b-2907-4fce-9770-f071d33a525e" collection="#[//output applicattion/json&#10;//---&#10;((1 to 1000) map(object) -&gt;{&#10;	value: object&#10;}).*value]">
+				<amqp:consume doc:name="Get predictions" doc:id="c09def43-3433-4122-bd57-7cc17dc13659" config-ref="AMQP_Config" queueName="results_of_predictions" maximumWait="1000" />
+				<set-variable value="#[output application/json&#10;---&#10;vars.played_predictions++[payload]]" doc:name="Set played_predictions" doc:id="4392dbf5-58e8-424f-a1e4-3ec8961c5a4b" variableName="played_predictions" />
+			</foreach>
+			<error-handler>
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="decff4fb-7cd3-4b34-b6ef-300f8785cbae">
+					<logger level="INFO" doc:name="Logger" doc:id="3a425e4e-1113-48bd-9878-7d66926867d3" message='"Queue is empty"' />
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<ee:transform doc:name="Transform Message" doc:id="68a4acfa-4d4a-415c-9eef-f6264fa7f797" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+vars.played_predictions filter($.user_email~=vars.user_email)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="24c8622e-0a39-4ba6-a49e-edc7db57d397" collection="#[vars.played_predictions]">
+			<amqp:publish doc:name="Publish again to results_of_predictions" doc:id="6b9337b4-0479-467b-8b13-fd27f7674641" config-ref="AMQP_Config" exchangeName="amq.topic">
+			<amqp:routing-keys>
+				<amqp:routing-key value="predictions.results" />
+			</amqp:routing-keys>
+		</amqp:publish>
+		</foreach>
+	</sub-flow>
+	<sub-flow name="getUpcomingFixturesSubFlow" doc:id="b5bec8c6-3813-4c6d-a855-58079d754231" >
+		<validation:is-true doc:name="Is not past date" doc:id="cc69fc9b-3a04-4035-a2f0-3e37af04bc2c" expression='#[not (now() as Date&gt;attributes.queryParams.date as Date{format:"yyyy-MM-dd"})]'>
+			<error-mapping sourceType="VALIDATION:INVALID_BOOLEAN" targetType="APP:PAST_DATE" />
+		</validation:is-true>
+		<set-variable value="#[attributes.queryParams.'league' default null]" doc:name="Set league" doc:id="59a9b3f0-0bb0-4f2d-bb4b-0bb6d19bfd6a" variableName="league"/>
+		<http:request method="GET" doc:name="api-football-beta" doc:id="c212ca32-8d2d-4c56-8a2e-20b4defe3eba" config-ref="Api-Football-Beta-HTTP_Request_configuration" path="/fixtures">
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"x-rapidapi-key" : "367da360a2mshe99c6313e5c1f4dp121921jsn97b4c767bdf0",
+	"x-rapidapi-host" : "api-football-beta.p.rapidapi.com"
+}]]]></http:headers>
+			<http:query-params ><![CDATA[#[output application/json
+---
+{
+	"date" : attributes.queryParams.'date'
+}]]]></http:query-params>
+		</http:request>
+		<ee:transform doc:name="Transform Message" doc:id="9c330707-ec48-464b-9c52-91e3287c241e" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+if(not (vars.league==null))
+  (payload.response map(event)->{
+  	id: event.fixture.id,
+  	teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
+  	league: event.league.name ++ ", " ++ event.league.country,
+    venue: event.fixture.venue.name default "Stadium unknown" ++ ", " ++ event.fixture.venue.city default "city unknown",
+  	date: event.fixture.date
+  }) filter(($.league replace(" ") with(""))==(vars.league default " " replace(" ") with("")))
+else
+  payload.response map(event)->{
+  	id: event.fixture.id,
+  	teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
+  	league: event.league.name ++ ", " ++ event.league.country,
+  	venue: event.fixture.venue.name default "Stadium unknown" ++ ", " ++ event.fixture.venue.city default "city unknown",
+  	date: event.fixture.date
+  }]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+	<flow name="getUsersFlow" doc:id="5c6eaa46-d9d5-4831-ab5a-62e054070e3f" >
+		<http:listener doc:name="Listener" doc:id="40920a6a-83ec-4ab0-8742-a3a66bae5873" config-ref="HTTP_Listener_config" path="/users"/>
+		<os:retrieve-all doc:name="Retrieve all" doc:id="ce0d5406-6f9d-4629-878f-edeac87a64d7" objectStore="client_os"/>
+		<ee:transform doc:name="Transform Message" doc:id="10ea6bfe-6a83-4c1b-bc96-8d4b0e4607d8" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="sport-predictions-impl-by-oneFlow" doc:id="bd335cd8-61d5-4fb4-b1d9-80c290045cf7" >
+		<http:listener doc:name="Listener" doc:id="0b063726-aa03-46b0-848d-45ad7e380174" config-ref="HTTP_Listener_config" path="/tokens"/>
+		<os:retrieve-all doc:name="Retrieve all" doc:id="fc64e895-9979-4306-aee3-d2c4a1807103" objectStore="token_os"/>
+		<ee:transform doc:name="Transform Message" doc:id="0fd9970b-94a1-402d-98de-ce95375d874c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<error-handler name="sport-predictions-impl-by-oneError_Handler" doc:id="baf44664-baf4-4e00-b2b8-3821908f73e2" >
+		<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="b8237239-a347-4e4e-85f2-039c8b9bb114" type="APP:INVALID_TOKEN">
+			<set-payload value='#[output application/json&#10;---&#10;{&#10;	message: "Invalid token"&#10;}]' doc:name="Set Payload" doc:id="a965ac61-629f-401a-a0b5-906802c24926" />
+			<set-variable value="403" doc:name="Set Variable" doc:id="4b212c4c-dc37-424a-997d-596c00df7f6b" variableName="httpStatus"/>
+		</on-error-propagate>
+		<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f5885f63-2af2-4ec7-a0ce-295f4ca411ff" type="APP:PAST_DATE">
+			<set-payload value='#[output application/json&#10;---&#10;{message:"You had entered a past date"}]' doc:name="Set Payload" doc:id="b0e8a40c-2312-458a-ba61-fcaaff920823" />
+			<set-variable value="400" doc:name="Set Variable" doc:id="89be7102-836d-44cc-b24c-6ef17cd30f74" variableName="httpStatus"/>
+		</on-error-propagate>
+	</error-handler>
+</mule>

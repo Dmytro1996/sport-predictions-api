@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:crypto="http://www.mulesoft.org/schema/mule/crypto" xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties"
+	xmlns:oauth2-provider="http://www.mulesoft.org/schema/mule/oauth2-provider"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/oauth http://www.mulesoft.org/schema/mule/oauth/current/mule-oauth.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/oauth2-provider http://www.mulesoft.org/schema/mule/oauth2-provider/current/mule-oauth2-provider.xsd
+http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd
+http://www.mulesoft.org/schema/mule/crypto http://www.mulesoft.org/schema/mule/crypto/current/mule-crypto.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="e4def892-8f5f-4190-b33b-7d6ab381cadf" basePath="/" >
+		<http:listener-connection host="0.0.0.0" port="${http.port}" />
+	</http:listener-config>
+	<amqp:config name="AMQP_Config" doc:name="AMQP Config" doc:id="e1d09844-cf88-4ba3-a998-0fd1d55ddd78" >
+		<amqp:connection host="${amqp.host}" port="${amqp.port}" username="${amqp.user}" password="${secure::amqp.password}" />
+	</amqp:config>
+	<http:request-config name="Api-Football-Beta-HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="8c2fc1fd-f044-4c75-8394-58d51c561f08" >
+		<http:request-connection host="${api-football-beta.host}" port="${api-football-beta.port}" protocol="HTTPS"/>
+	</http:request-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="d99965f9-3919-4e4a-baf2-1422d9e7e111" file="config.yaml" />
+	<os:object-store name="client_os" doc:name="Object store" doc:id="b357beb6-2bd5-4060-8661-aa8ed6f8eb20" />
+	<os:object-store name="token_os" doc:name="Object store" doc:id="885ca6c0-9a5a-4fcf-9f01-f457eb9498a6" entryTtl="30" entryTtlUnit="MINUTES"/>
+	<oauth2-provider:config name="OAuth2_Provider_Config" doc:name="OAuth2 Provider Config" doc:id="c3bc11f0-63ac-4e91-8d4e-494cbe7862b8" listenerConfig="HTTP_Listener_config" clientStore="client_os" supportedGrantTypes="CLIENT_CREDENTIALS" >
+		<oauth2-provider:token-config tokenStore="token_os" />
+	</oauth2-provider:config>
+	<http:request-config name="Token_HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="1565607e-dae0-4de9-834e-25b8ce43e1b1" >
+		<http:request-connection host="${token_request.host}" port="${token_request.port}" />
+	</http:request-config>
+	<secure-properties:config name="Secure_Properties_Config" doc:name="Secure Properties Config" doc:id="3f54c902-0586-40cb-aee2-f190015b7dd3" file="config.yaml" key="123456789" >
+		<secure-properties:encrypt algorithm="Blowfish" />
+	</secure-properties:config>
+	<crypto:jce-config name="Crypto_Jce" doc:name="Crypto Jce" doc:id="5651c63a-b66f-4d5c-b840-e81e17b4cd17" keystore="${crypto.keystore}" password="${secure::crypto.password}" type="JCEKS">
+		<crypto:jce-key-infos >
+			<crypto:jce-symmetric-key-info keyId="AnykeyID" alias="jksvalue" password="${secure::crypto.symmetricKeyPassword}" />
+		</crypto:jce-key-infos>
+	</crypto:jce-config>
+</mule>

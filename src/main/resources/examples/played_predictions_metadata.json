@@ -1,0 +1,16 @@
+[
+{
+    id:1,
+    score:"2:0",
+    teams:"Chelsea-Manchester United",
+    userId:1,
+    date:"2021-08-12"
+},
+{
+    id:592852,
+    score:"2:0",    
+    teams:"Newcastle-Manchester City",
+    userId:1,
+    date:"2021-08-12"
+}
+]

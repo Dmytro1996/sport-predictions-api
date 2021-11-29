@@ -1,0 +1,21 @@
+http:
+  port: "8081"
+  
+amqp:
+  host: "localhost"
+  port: "5672"
+  user: "Dmytro"
+  password: "![q8lREinYj9AQON6OZfw3Yg==]"
+
+api-football-beta:
+    host: "api-football-beta.p.rapidapi.com"
+    port: "443"
+    
+token_request:
+   host: "localhost"
+   port: "8081"
+   
+crypto:
+    keystore: "C:/Users/ddanylo/AnypointStudio/studio-workspace/sport-predictions/src/main/resources/store/keystore.jceks"
+    password: "![q8lREinYj9AQON6OZfw3Yg==]"
+    symmetricKeyPassword: "![HN1p7WQVU+Y=]"

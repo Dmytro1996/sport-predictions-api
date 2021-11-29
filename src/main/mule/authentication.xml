@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:crypto="http://www.mulesoft.org/schema/mule/crypto" xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:oauth2-provider="http://www.mulesoft.org/schema/mule/oauth2-provider"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:spring="http://www.mulesoft.org/schema/mule/spring" xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/oauth http://www.mulesoft.org/schema/mule/oauth/current/mule-oauth.xsd
+http://www.mulesoft.org/schema/mule/spring http://www.mulesoft.org/schema/mule/spring/current/mule-spring.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/oauth2-provider http://www.mulesoft.org/schema/mule/oauth2-provider/current/mule-oauth2-provider.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+http://www.mulesoft.org/schema/mule/crypto http://www.mulesoft.org/schema/mule/crypto/current/mule-crypto.xsd">
+	<sub-flow name="createUserSubFlow" doc:id="ed414f86-914b-464a-a7ac-187ecefff7ba" >
+		<crypto:jce-decrypt doc:name="Jce decrypt" doc:id="7901568e-b615-4fd3-8fe0-49b2ccc1e531" config-ref="Crypto_Jce" algorithm="Blowfish" keyId="AnykeyID" target="password_decrypted">
+			<crypto:content><![CDATA[#[import * from dw::core::Binaries
+output application/octet-stream
+---
+fromBase64(payload.password as String) as Binary]]]></crypto:content>
+		</crypto:jce-decrypt>
+		<oauth2-provider:create-client doc:id="dc5cbf5c-a8d2-4c27-8aa8-3f2d52a0eb9b" config-ref="OAuth2_Provider_Config" clientId="#[payload.'email']" type="CONFIDENTIAL" secret="#[vars.password_decrypted]" clientName="#[payload.'name']" description='#[""]' principal='#[""]' redirectUris='#[["abc.com"]]' authorizedGrantTypes='#[["CLIENT_CREDENTIALS"]]' failIfPresent="true"/>
+		<set-payload value='#[output application/json
+&#10;---
+&#10;{
+&#10;  message:"User created successfully"  
+&#10;}]' doc:name="Set Payload" doc:id="64b67e67-3a8c-468b-a2d9-8cfdfbbbe7d2" />
+	
+</sub-flow>
+	<sub-flow name="authenticateSubFlow" doc:id="3e60be21-483f-401f-8945-fe0005f62b3a" >
+		<crypto:jce-decrypt doc:name="Jce decrypt" doc:id="6ad154b4-ee88-471c-afb2-20fbe10f8638" config-ref="Crypto_Jce" algorithm="Blowfish" keyId="AnykeyID" target="password_decrypted">
+			<crypto:content><![CDATA[#[import * from dw::core::Binaries
+output application/octet-stream
+---
+fromBase64(payload.password as String) as Binary]]]></crypto:content>
+		</crypto:jce-decrypt>
+		<http:request method="POST" doc:name="/token" doc:id="a42b4a8c-0cc5-4644-8730-3f9edbe80058" config-ref="Token_HTTP_Request_configuration" path="/token">
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"client_secret" : vars.password_decrypted,
+	"grant_type" : "CLIENT_CREDENTIALS",
+	"client_id" : payload.email
+}]]]></http:headers>
+		</http:request>
+		<ee:transform doc:name="Transform Message" doc:id="bcd468e3-9c3d-4c44-ac02-9d9270948bef">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	token: payload.access_token	
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	
+</sub-flow>
+	<sub-flow name="deleteUserSubFlow" doc:id="9db64b32-df71-4edf-8884-ebbee16db7ec" >
+		<oauth2-provider:validate-token doc:name="Validate token" doc:id="0958a7e2-110e-4689-80a7-a55a82a1ef7d" config-ref="OAuth2_Provider_Config" accessToken="#[(attributes.headers['Authorization'] splitBy ' ')[1]]">
+			<error-mapping targetType="APP:INVALID_TOKEN" />
+		</oauth2-provider:validate-token>
+		<oauth2-provider:delete-client doc:name="Delete client" doc:id="d0469971-6b48-4db6-a228-4ca0f5b36cb5" config-ref="OAuth2_Provider_Config" clientId="#[payload.client_id]"/>
+		<set-payload value='#[output application/json
+&#10;---
+&#10;{
+&#10;	message:"User deleted"
+&#10;}]' doc:name="Set Payload" doc:id="2221d9f7-b2da-4cc5-95ab-509f65ae7af5" />
+	</sub-flow>
+	</mule>

@@ -1,0 +1,7 @@
+%dw 2.0
+
+type auto_4bfc0633_9e78_4af1_a26b_ce508f1438e5_Output_Payload = {
+  token: String, 
+  _?: Any
+}
+

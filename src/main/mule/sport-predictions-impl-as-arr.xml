@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<flow name="create-prediction-flow" doc:id="3de555ae-aa7f-4610-bd7e-a059d9bd4320" initialState="stopped">
+		<http:listener doc:name="Listener" doc:id="c7be3c44-457a-4137-8f40-9be94501208c" path="/football/create" config-ref="HTTP_Listener_config" allowedMethods="POST"/>
+		<set-variable value='#[{&#10;	id:payload.id,&#10;	score:payload.score,&#10;	userId:payload.userId,&#10;	date: now() as String{format:"YYYY-MM-dd"}&#10;}]' doc:name="Set Variable" doc:id="50dc2308-068e-46be-a230-f6a9fd1dcc12" variableName="newPrediction"/>
+		<try doc:name="Try" doc:id="44636797-5d8f-4825-923b-ce49a30d8f49" >
+			<amqp:consume doc:name="Consume" doc:id="c94bdca0-48e7-4f48-986e-5150f1373de6" config-ref="AMQP_Config" queueName="sport_predictions" maximumWait="1000"/>
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="a846e1b4-d91f-492b-aa67-51f8f413987b" type="AMQP:TIMEOUT">
+					<set-payload value="#[[]]" doc:name="Set Payload" doc:id="9386711c-5759-4008-830b-4b585a0bf0a0" />
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<amqp:publish doc:id="554d8cca-749d-49c2-a59d-1af487aeabd5" config-ref="AMQP_Config" exchangeName="amq.topic" doc:name="Publish created prediction">
+			<amqp:routing-keys >
+				<amqp:routing-key value="prediction.create" />
+			</amqp:routing-keys>
+			<amqp:message >
+				<amqp:body ><![CDATA[#[payload ++ [vars.newPrediction]]]]></amqp:body>
+			</amqp:message>
+		</amqp:publish>
+	</flow>
+	<flow name="compare-predictions-flow" doc:id="4c2bd9b1-bd00-45a6-857b-152dce029aa4" initialState="stopped">
+		<scheduler doc:name="Scheduler" doc:id="e268346a-e556-43c6-b27d-b58536f23e25" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="1" timeUnit="DAYS"/>
+			</scheduling-strategy>
+		</scheduler>
+		<http:request method="GET" doc:name="Request" doc:id="5b0c6477-f7d7-4367-94f3-b1ba79fe5455" config-ref="Api-Football-Beta-HTTP_Request_configuration" path="/fixtures">
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"x-rapidapi-key" : "367da360a2mshe99c6313e5c1f4dp121921jsn97b4c767bdf0",
+	"x-rapidapi-host" : "api-football-beta.p.rapidapi.com"
+}]]]></http:headers>
+			<http:query-params ><![CDATA[#[output application/json
+---
+{
+	//"date" : (now()-|P1D|) as String{format:"YYYY-MM-dd"}
+	date:"2021-05-18",
+	//league:"39",
+	//season:"2020"
+}]]]></http:query-params>
+		</http:request>
+		<set-variable value="#[payload]" doc:name="Set Variable" doc:id="9f4c70f1-2deb-4af8-a2c8-146f33605330" variableName="results"/>
+		<amqp:consume doc:name="Get predictions" doc:id="c61e0d5d-8814-4341-b693-b0053f9ce722" config-ref="AMQP_Config" queueName="sport_predictions" maximumWait="1000"/>
+		<ee:transform doc:name="Transform Message" doc:id="fbbf6dc0-6e0c-41e2-80b3-0aae5ba405c0" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="not_yet_played" ><![CDATA[%dw 2.0
+output application/json
+---
+(payload filter(not (vars.results.response.*fixture.id contains($.id as Number)))) filter(not ($~=null))]]></ee:set-variable>
+				<ee:set-variable variableName="already_played" ><![CDATA[%dw 2.0
+output application/json
+---
+flatten((payload map (prediction) -> {
+	result:(vars.results.response map((event) ->do{
+	if(event.fixture.id~=prediction.id and prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String)){
+	       	id:prediction.id,
+	    	teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
+			result: "You guessed correctly",
+			score: prediction.score,
+			userId:prediction.userId,
+			date: prediction.date
+	}
+	else if(event.fixture.id~=prediction.id and (not (prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String))))
+	       {
+				id:prediction.id,
+				teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
+			    result: "You were wrong",
+			    score: prediction.score,
+			    userId:prediction.userId,
+			    date: prediction.date
+			}
+	    	
+    else
+	  null
+}))filter($!=null)
+}).*result filter(sizeOf($)>0))]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<scatter-gather doc:name="Scatter-Gather" doc:id="097485da-1c8a-4568-aaf6-a97e836638c3" >
+			<route >
+				<try doc:name="Try" doc:id="9e0623ea-8a77-4770-8cd7-7d55852afc8c">
+					<amqp:consume doc:name="Consume" doc:id="321f79b8-83cc-4785-995f-54f5c211cb43" config-ref="AMQP_Config" queueName="results_of_predictions" />
+					<error-handler>
+						<on-error-continue enableNotifications="true" logException="true" doc:name="Copy_of_On Error Continue" doc:id="291f2089-656b-49b1-8dd4-7330e2fe52b7" type="AMQP:TIMEOUT">
+							<set-payload value="#[[]]" doc:name="Copy_of_Set Payload" doc:id="a6e36c5c-0668-4a90-b6ce-74d01fa71872" />
+						</on-error-continue>
+					</error-handler>
+				</try>
+				<amqp:publish doc:name="Publish to results_of_predictions queue" doc:id="a298f461-bfed-43b0-a0ff-08c7dadfd16c" config-ref="AMQP_Config" exchangeName="amq.topic">
+					<amqp:routing-keys>
+						<amqp:routing-key value="predictions.results" />
+					</amqp:routing-keys>
+					<amqp:message >
+						<amqp:body ><![CDATA[#[payload ++ vars.already_played]]]></amqp:body>
+					</amqp:message>
+				</amqp:publish>
+			</route>
+			<route >
+				<amqp:publish doc:name="Publish again not yet played predictions" doc:id="298a317d-5734-4eec-bd78-2cd473e73b6a" config-ref="AMQP_Config" exchangeName="amq.topic">
+					<amqp:routing-keys>
+						<amqp:routing-key value="prediction.create" />
+					</amqp:routing-keys>
+					<amqp:message >
+						<amqp:body ><![CDATA[#[vars.not_yet_played]]]></amqp:body>
+					</amqp:message>
+				</amqp:publish>
+			</route>
+		</scatter-gather>
+	</flow>
+	<flow name="check-predictions-flow" doc:id="5952e56b-ff90-404d-86be-47af4da47264" initialState="stopped">
+		<http:listener doc:name="Listener" doc:id="7f6f6bbc-1c98-4a50-b3bc-4c493cc43233" config-ref="HTTP_Listener_config" path="/football/check"/>
+		<set-variable value="#[attributes.queryParams.'userId']" doc:name="Set Variable" doc:id="3c22eaec-6d7e-4b15-9deb-93a2e57c363a" variableName="userId"/>
+		<amqp:consume doc:name="Consume results_of_predictions" doc:id="7d066ce4-65e7-4b44-b65d-aa27d6270843" config-ref="AMQP_Config" queueName="results_of_predictions"/>
+		<set-variable value="#[payload]" doc:name="Set Variable" doc:id="bbaa511e-304a-4a44-9ce8-957e8ed5fdbb" variableName="played_predictions"/>
+		<ee:transform doc:name="Transform Message" doc:id="82cf613e-2c51-468e-9b44-2b1b60ae1c41" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload filter($.userId~=vars.userId)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<amqp:publish doc:name="Publish again to results_of_predictions" doc:id="7c691c8b-2052-405e-bc48-41f73f28643b" config-ref="AMQP_Config" exchangeName="amq.topic">
+			<amqp:routing-keys >
+				<amqp:routing-key value="predictions.results" />
+			</amqp:routing-keys>
+			<amqp:message >
+				<amqp:body ><![CDATA[#[vars.played_predictions]]]></amqp:body>
+			</amqp:message>
+		</amqp:publish>
+	</flow>
+</mule>
