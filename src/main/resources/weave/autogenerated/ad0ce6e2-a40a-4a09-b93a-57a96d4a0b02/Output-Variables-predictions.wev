@@ -1,0 +1,4 @@
+%dw 2.0
+
+type auto_ad0ce6e2_a40a_4a09_b93a_57a96d4a0b02_Output_Variables_predictions = Array<Nothing>
+

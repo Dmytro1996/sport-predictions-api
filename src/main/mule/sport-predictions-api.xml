@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd ">
-    <apikit:config name="sport-predictions-api-config" api="resource::3055e024-61b1-4343-ae7d-205cee9e27d4:sport-predictions-api:1.0.4:raml:zip:sport-predictions-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
+    <apikit:config name="sport-predictions-api-config" api="resource::3055e024-61b1-4343-ae7d-205cee9e27d4:sport-predictions-api:1.0.5:raml:zip:sport-predictions-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
     <flow name="sport-predictions-api-main">
         <http:listener config-ref="HTTP_Listener_config" path="/api/*">
             <http:response statusCode="#[vars.httpStatus default 200]">
@@ -121,25 +121,31 @@ output application/json
         </error-handler>
     </flow>
     <flow name="get:\football\check:sport-predictions-api-config">
-        <flow-ref doc:name="Flow Reference" doc:id="68b5013b-fb1f-48d8-850b-ea771d3913ce" name="checkPredictonsSubFlow" />
+        <flow-ref doc:name="checkPredictionsSubFlow" doc:id="68b5013b-fb1f-48d8-850b-ea771d3913ce" name="checkPredictonsSubFlow" />
         <error-handler ref="sport-predictions-impl-by-oneError_Handler" />
     </flow>
     <flow name="post:\football\create:application\json:sport-predictions-api-config">
-        <flow-ref doc:name="Flow Reference" doc:id="b9b7cb9c-11dd-417c-8898-f97fcc014bdb" name="createPredictionSubFlow" />
+        <flow-ref doc:name="createUserSubFlow" doc:id="b9b7cb9c-11dd-417c-8898-f97fcc014bdb" name="createPredictionSubFlow" />
         <error-handler ref="sport-predictions-impl-by-oneError_Handler" />
     </flow>
     <flow name="delete:\deleteUser:sport-predictions-api-config">
-        <flow-ref doc:name="Flow Reference" doc:id="4608b304-1312-455e-acd5-783afb4b4981" name="deleteUserSubFlow" />
+        <flow-ref doc:name="deleteUserSubFlow" doc:id="4608b304-1312-455e-acd5-783afb4b4981" name="deleteUserSubFlow" />
         <error-handler ref="sport-predictions-impl-by-oneError_Handler" />
     </flow>
     <flow name="post:\authenticate:application\json:sport-predictions-api-config">
-        <flow-ref doc:name="Flow Reference" doc:id="fb34825d-cfb1-4d29-a939-78adef33f993" name="authenticateSubFlow" />
+        <flow-ref doc:name="authenticateSubFlow" doc:id="fb34825d-cfb1-4d29-a939-78adef33f993" name="authenticateSubFlow" />
+        <error-handler ref="sport-predictions-impl-by-oneError_Handler" />
     </flow>
     <flow name="post:\createUser:application\json:sport-predictions-api-config">
-        <flow-ref doc:name="Flow Reference" doc:id="01a3e119-e095-409a-b823-b3959f1fbeea" name="createUserSubFlow" />
+        <flow-ref doc:name="createUserSubflow" doc:id="01a3e119-e095-409a-b823-b3959f1fbeea" name="createUserSubFlow" />
+		<error-handler ref="sport-predictions-impl-by-oneError_Handler" />
     </flow>
     <flow name="get:\football\upcoming_fixtures:sport-predictions-api-config">
-        <flow-ref doc:name="Flow Reference" doc:id="e8d7710e-b4d9-449a-a51d-09cef13230cd" name="getUpcomingFixturesSubFlow" />
+        <flow-ref doc:name="getUpcomingFixturesSubflow" doc:id="e8d7710e-b4d9-449a-a51d-09cef13230cd" name="getUpcomingFixturesSubFlow" />
         <error-handler ref="sport-predictions-impl-by-oneError_Handler" />
+    </flow>
+    <flow name="get:\getRankings:sport-predictions-api-config">
+		<flow-ref doc:name="getUserRankingsSub_Flow" doc:id="3e10e63d-4b7f-4d34-9bc7-cc4e51528d3c" name="getUserRankingsSub_Flow"/>
+		<error-handler ref="sport-predictions-impl-by-oneError_Handler" />
     </flow>
 </mule>

@@ -1,18 +1,15 @@
 %dw 2.0
 
-type auto_b5bec8c6_3813_4c6d_a855_58079d754231_Input_Attributes = {|
+type auto_190e7c8a_31ac_4190_bc80_e7053501e505_Input_Attributes = {|
   clientCertificate?: {|
     publicKey?: {|  |}, 
     "type"?: String, 
     encoded?: Binary
   |}, 
-  headers: {|  |}, 
+  headers: {| Authorization: String |}, 
   listenerPath: String, 
   method: String, 
-  queryParams: {|
-    date: String, 
-    league?: String
-  |}, 
+  queryParams: {|  |}, 
   queryString: String, 
   relativePath: String, 
   remoteAddress: String, 

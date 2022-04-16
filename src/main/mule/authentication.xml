@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<mule xmlns:crypto="http://www.mulesoft.org/schema/mule/crypto" xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
-	xmlns:oauth2-provider="http://www.mulesoft.org/schema/mule/oauth2-provider"
-	xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:spring="http://www.mulesoft.org/schema/mule/spring" xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:crypto="http://www.mulesoft.org/schema/mule/crypto"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:oauth2-provider="http://www.mulesoft.org/schema/mule/oauth2-provider" xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:spring="http://www.mulesoft.org/schema/mule/spring" xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
 http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
 http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
 http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
@@ -11,7 +11,8 @@ http://www.mulesoft.org/schema/mule/spring http://www.mulesoft.org/schema/mule/s
 http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
 http://www.mulesoft.org/schema/mule/oauth2-provider http://www.mulesoft.org/schema/mule/oauth2-provider/current/mule-oauth2-provider.xsd
 http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
-http://www.mulesoft.org/schema/mule/crypto http://www.mulesoft.org/schema/mule/crypto/current/mule-crypto.xsd">
+http://www.mulesoft.org/schema/mule/crypto http://www.mulesoft.org/schema/mule/crypto/current/mule-crypto.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
 	<sub-flow name="createUserSubFlow" doc:id="ed414f86-914b-464a-a7ac-187ecefff7ba" >
 		<crypto:jce-decrypt doc:name="Jce decrypt" doc:id="7901568e-b615-4fd3-8fe0-49b2ccc1e531" config-ref="Crypto_Jce" algorithm="Blowfish" keyId="AnykeyID" target="password_decrypted">
 			<crypto:content><![CDATA[#[import * from dw::core::Binaries
@@ -19,7 +20,15 @@ output application/octet-stream
 ---
 fromBase64(payload.password as String) as Binary]]]></crypto:content>
 		</crypto:jce-decrypt>
+		<set-variable value="#[payload]" doc:name="Set newUser" doc:id="67a15013-0e75-493e-aa11-48f9477887a8" variableName="newUser"/>
 		<oauth2-provider:create-client doc:id="dc5cbf5c-a8d2-4c27-8aa8-3f2d52a0eb9b" config-ref="OAuth2_Provider_Config" clientId="#[payload.'email']" type="CONFIDENTIAL" secret="#[vars.password_decrypted]" clientName="#[payload.'name']" description='#[""]' principal='#[""]' redirectUris='#[["abc.com"]]' authorizedGrantTypes='#[["CLIENT_CREDENTIALS"]]' failIfPresent="true"/>
+		<db:insert doc:name="Insert" doc:id="ea438dee-e34f-42c5-a6a3-e56099694ad1" config-ref="Database_Config">
+			<db:sql ><![CDATA[INSERT INTO USER_RANKINGS(USERNAME, EMAIL, POINTS) VALUES(:name, :email, 0)]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	name: vars.newUser."name",
+	email: vars.newUser."email"	
+}]]]></db:input-parameters>
+		</db:insert>
 		<set-payload value='#[output application/json
 &#10;---
 &#10;{
@@ -35,6 +44,7 @@ output application/octet-stream
 fromBase64(payload.password as String) as Binary]]]></crypto:content>
 		</crypto:jce-decrypt>
 		<http:request method="POST" doc:name="/token" doc:id="a42b4a8c-0cc5-4644-8730-3f9edbe80058" config-ref="Token_HTTP_Request_configuration" path="/token">
+			<error-mapping sourceType="HTTP:BAD_REQUEST" targetType="TOKEN:BAD_REQUEST" />
 			<http:headers ><![CDATA[#[output application/java
 ---
 {
@@ -59,7 +69,14 @@ output application/json
 		<oauth2-provider:validate-token doc:name="Validate token" doc:id="0958a7e2-110e-4689-80a7-a55a82a1ef7d" config-ref="OAuth2_Provider_Config" accessToken="#[(attributes.headers['Authorization'] splitBy ' ')[1]]">
 			<error-mapping targetType="APP:INVALID_TOKEN" />
 		</oauth2-provider:validate-token>
+		<set-variable value="#[payload.client_id]" doc:name="Set userEmail" doc:id="a9622a6c-7d24-4630-bdaa-726abc06736c" variableName="userEmail"/>
 		<oauth2-provider:delete-client doc:name="Delete client" doc:id="d0469971-6b48-4db6-a228-4ca0f5b36cb5" config-ref="OAuth2_Provider_Config" clientId="#[payload.client_id]"/>
+		<db:delete doc:name="Delete" doc:id="2ee307ba-bb11-48f4-826c-39dc0437b4e8" config-ref="Database_Config">
+			<db:sql ><![CDATA[DELETE FROM USER_RANKINGS WHERE EMAIL=:email]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	email: vars.userEmail
+}]]]></db:input-parameters>
+		</db:delete>
 		<set-payload value='#[output application/json
 &#10;---
 &#10;{

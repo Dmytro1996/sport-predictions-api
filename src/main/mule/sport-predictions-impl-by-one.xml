@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:oauth2-provider="http://www.mulesoft.org/schema/mule/oauth2-provider"
-	xmlns:os="http://www.mulesoft.org/schema/mule/os"
-	xmlns:spring="http://www.mulesoft.org/schema/mule/spring" xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:oauth2-provider="http://www.mulesoft.org/schema/mule/oauth2-provider"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:spring="http://www.mulesoft.org/schema/mule/spring" xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
 http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
 http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
 http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
@@ -10,7 +10,8 @@ http://www.mulesoft.org/schema/mule/oauth http://www.mulesoft.org/schema/mule/oa
 http://www.mulesoft.org/schema/mule/spring http://www.mulesoft.org/schema/mule/spring/current/mule-spring.xsd
 http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
 http://www.mulesoft.org/schema/mule/oauth2-provider http://www.mulesoft.org/schema/mule/oauth2-provider/current/mule-oauth2-provider.xsd
-http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
 	<sub-flow name="createPredictionSubFlow" doc:id="0565dd91-e527-4f60-b59c-c10127e5f794" >
 		<set-variable value="#[payload]" doc:name="Set Variable" doc:id="1b14a885-ebdd-42eb-aec9-c6dd21f97c80" variableName="newPrediction"/>
 		<oauth2-provider:validate-token doc:name="Validate token" doc:id="215e39e2-7969-4c9e-96ab-cc94984555d2" config-ref="OAuth2_Provider_Config" accessToken="#[(attributes.headers[&quot;Authorization&quot;] splitBy ' ')[1]]">
@@ -75,18 +76,25 @@ output application/json
 (vars.predictions filter(not (vars.results.response.*fixture.id contains($.id as Number)))) filter(not ($~=null)) default []]]></ee:set-variable>
 				<ee:set-variable variableName="already_played" ><![CDATA[%dw 2.0
 output application/json
+import indexOf from dw::core::Arrays
 ---
 flatten((vars.predictions map (prediction) -> {
 	result:(vars.results.response map((event) ->do{
-	if(event.fixture.id~=prediction.id and prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String)){
+		var actualScore=event.goals.home default "" as String ++ ":" ++ event.goals.away default "" as String
+		fun getWinner(score)= if((score splitBy ":")[0]==(score splitBy ":")[1])
+		                          0
+		                      else
+		                          indexOf(score splitBy ":",max(score splitBy ":"))+1
+	    ---
+	    if(event.fixture.id~=prediction.id and (getWinner(prediction.score) == getWinner(actualScore))){
 	       	id:prediction.id,
 	    	teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
-			result: "You guessed correctly",
+			result: if(prediction.score==actualScore) "You guessed correctly!" else "You guessed a winner, but didn't guess a result.",
 			score: prediction.score,
 			user_email:prediction.user_email,
 			date: prediction.date
-	}
-	else if(event.fixture.id~=prediction.id and (not (prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String))))
+	    }
+	    else if(event.fixture.id~=prediction.id and (not (prediction.score == (event.goals.home as String ++ ":" ++ event.goals.away as String))))
 	       {
 				id:prediction.id,
 				teams: event.teams.home.name ++ "-" ++ event.teams.away.name,
@@ -96,8 +104,8 @@ flatten((vars.predictions map (prediction) -> {
 			    date: prediction.date
 			}
 	    	
-    else
-	  null
+        else
+	      null
 }))filter($!=null)
 }).*result filter(sizeOf($)>0)) default []]]></ee:set-variable>
 			</ee:variables>
@@ -120,6 +128,9 @@ flatten((vars.predictions map (prediction) -> {
 					</amqp:routing-keys>
 				</amqp:publish>
 				</foreach>
+			</route>
+			<route >
+				<flow-ref doc:name="Update rankings" doc:id="41d403d4-e3ec-476d-b457-96645e4c2b0a" name="update_rankings_Sub_Flow"/>
 			</route>
 		</scatter-gather>
 	</flow>
@@ -198,6 +209,64 @@ else
 			</ee:message>
 		</ee:transform>
 	</sub-flow>
+	<sub-flow name="update_rankings_Sub_Flow" doc:id="ad0ce6e2-a40a-4a09-b93a-57a96d4a0b02" >
+		<ee:transform doc:name="Transform Message" doc:id="b95a2556-c2df-49bd-88e8-dbc6dbe3e61c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+valuesOf((vars.already_played map(prediction)->{
+	username: prediction.user_email,
+	pointsToAdd: if(prediction.result == "You guessed correctly!") 3
+	             else if(prediction.result == "You guessed a winner, but didn't guess a result.")
+	                 1
+	             else
+	                 0
+}) groupBy($.username)) map(user_predictions)->{
+	username: user_predictions[0].username,
+	pointsToAdd: sum(user_predictions.*pointsToAdd)
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="77e99953-beef-4d1d-bd3b-04f0af740a76" >
+			<db:select doc:name="Select" doc:id="2a8bdce9-c04c-421f-a442-b2f2d3c99ce4" config-ref="Database_Config">
+				<db:sql ><![CDATA[SELECT EMAIL, POINTS+:pointsToAdd AS POINTS FROM USER_RANKINGS WHERE EMAIL=:email]]></db:sql>
+				<db:input-parameters ><![CDATA[#[{
+	email:payload.username,
+	pointsToAdd:payload.pointsToAdd
+}]]]></db:input-parameters>
+			</db:select>
+			<db:update doc:id="5e405232-fc14-464e-8e64-7faa7ff04641" config-ref="Database_Config">
+				<db:sql ><![CDATA[UPDATE USER_RANKINGS SET POINTS=:points WHERE EMAIL=:email]]></db:sql>
+				<db:input-parameters ><![CDATA[#[{
+	email:payload[0]."EMAIL" default "",
+	points:payload[0]."POINTS" default 0
+}]]]></db:input-parameters>
+			</db:update>
+			<logger level="INFO" doc:name="Logger" doc:id="5956b726-d68f-4167-8ab2-466337a8eac7" message="#[payload]"/>
+		</foreach>
+	</sub-flow>
+	<sub-flow name="getUserRankingsSub_Flow" doc:id="190e7c8a-31ac-4190-bc80-e7053501e505" >
+		<oauth2-provider:validate-token doc:name="Validate token" doc:id="e55d855f-805c-4f3a-8a44-aa3578cd2880" config-ref="OAuth2_Provider_Config" accessToken="#[(attributes.headers['Authorization'] splitBy ' ')[1]]">
+			<error-mapping targetType="APP:INVALID_TOKEN" />
+		</oauth2-provider:validate-token>
+		<db:select doc:name="Select" doc:id="1b1ede77-8f01-492f-b143-e39ef7f40626" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT USERNAME, EMAIL, POINTS FROM USER_RANKINGS ORDER BY POINTS DESC]]></db:sql>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="8582b5ce-9e7d-4856-9bea-3284fbb2ee58" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map(user, index)->{
+	rank: index+1,
+	name: user.USERNAME,
+	email: user.EMAIL,
+	points: user.POINTS
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
 	<flow name="getUsersFlow" doc:id="5c6eaa46-d9d5-4831-ab5a-62e054070e3f" >
 		<http:listener doc:name="Listener" doc:id="40920a6a-83ec-4ab0-8742-a3a66bae5873" config-ref="HTTP_Listener_config" path="/users"/>
 		<os:retrieve-all doc:name="Retrieve all" doc:id="ce0d5406-6f9d-4629-878f-edeac87a64d7" objectStore="client_os"/>
@@ -230,6 +299,10 @@ payload]]></ee:set-payload>
 		<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f5885f63-2af2-4ec7-a0ce-295f4ca411ff" type="APP:PAST_DATE">
 			<set-payload value='#[output application/json&#10;---&#10;{message:"You had entered a past date"}]' doc:name="Set Payload" doc:id="b0e8a40c-2312-458a-ba61-fcaaff920823" />
 			<set-variable value="400" doc:name="Set Variable" doc:id="89be7102-836d-44cc-b24c-6ef17cd30f74" variableName="httpStatus"/>
+		</on-error-propagate>
+		<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="052d5ab7-4bea-467d-b130-fc6a546ceaff" type="TOKEN:BAD_REQUEST">
+			<set-payload value='#[output aplication/json&#10;---&#10;{message: "Error while authenticating a user"}]' doc:name="Set Payload" doc:id="e307ff77-7e19-42ce-a9c6-76077a50865a" />
+			<set-variable value="400" doc:name="Set Variable" doc:id="ddf86294-83cd-4fc1-8fe2-2b723000b183" variableName="httpStatus"/>
 		</on-error-propagate>
 	</error-handler>
 </mule>

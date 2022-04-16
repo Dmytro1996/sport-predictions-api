@@ -19,3 +19,10 @@ crypto:
     keystore: "C:/Users/ddanylo/AnypointStudio/studio-workspace/sport-predictions/src/main/resources/store/keystore.jceks"
     password: "![q8lREinYj9AQON6OZfw3Yg==]"
     symmetricKeyPassword: "![HN1p7WQVU+Y=]"
+
+db:
+    host: "localhost"
+    port: "3306"
+    user: "Dmytro"
+    password: "![q8lREinYj9AQON6OZfw3Yg==]"
+    database: "SPORT_PREDICTIONS_API"
